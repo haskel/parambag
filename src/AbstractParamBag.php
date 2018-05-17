@@ -30,6 +30,11 @@ abstract class AbstractParamBag
     protected $hasCallableValue = false;
 
     /**
+     * @var bool
+     */
+    protected $caseSensitiveKey = false;
+
+    /**
      * @var ParamBagSettings
      */
     protected $settings;
@@ -40,7 +45,7 @@ abstract class AbstractParamBag
      *
      * @throws ParamBagException
      */
-    public function __construct(array $hash, array $keyRestrictions = [])
+    public function __construct(array $hash = [], array $keyRestrictions = [])
     {
         $this->settings = new ParamBagSettings();
 
@@ -68,9 +73,10 @@ abstract class AbstractParamBag
      */
     public function get($key, $default = null)
     {
-        $this->checkKey($key);
+        $key = $this->normalizeKey($key);
+        $this->checkKeyRestrictions($key);
 
-        if (!isset($this->bag[$key])) {
+        if (!$this->has($key)) {
             return null;
         }
 
@@ -94,9 +100,10 @@ abstract class AbstractParamBag
      */
     public function take($key)
     {
-        $this->checkKey($key);
+        $key = $this->normalizeKey($key);
+        $this->checkKeyRestrictions($key);
 
-        if (!isset($this->bag[$key])) {
+        if (!$this->has($key)) {
             throw new ParamBagException("Value not defined");
         }
 
@@ -111,21 +118,56 @@ abstract class AbstractParamBag
     /**
      * @param mixed $key
      * @param mixed $value
-     * @param int   $type
+     * @param null  $type
      *
+     * @return $this
      * @throws ParamBagException
      */
     public function set($key, $value, $type = null)
     {
         if (is_callable($key)) {
-            $this->hasCallableValue = true;
             $key = $key();
         }
-        $this->checkKey($key);
+        $key = $this->normalizeKey($key);
+        $this->checkKeyRestrictions($key);
+
+        if (is_callable($value)) {
+            $this->hasCallableValue = true;
+        }
 
         $this->bag[$key] = $this->extractValue($key, $value, $type);
+
+        return $this;
     }
 
+    /**
+     * @param $key
+     *
+     * @return string
+     */
+    private function normalizeKey($key)
+    {
+        if ($this->caseSensitiveKey && is_string($key)) {
+            $key = strtolower($key);
+        }
+
+        return $key;
+    }
+
+    /**
+     * @param $key
+     */
+    public function remove($key)
+    {
+        $key = $this->normalizeKey($key);
+        if ($this->has($key)) {
+            unset($this->bag[$key]);
+        }
+    }
+
+    /**
+     * @return array
+     */
     public function all()
     {
         if (!$this->hasCallableValue) {
@@ -158,13 +200,82 @@ abstract class AbstractParamBag
     }
 
     /**
+     * @param $object
+     *
+     * @throws ParamBagException
+     */
+    public function fill($object)
+    {
+        if (!is_object($object)) {
+            throw new ParamBagException("Supports only objects");
+        }
+
+        foreach ($this->all() as $key => $value) {
+            if (!property_exists($object, $key)) {
+                continue;
+            }
+            $object->{$key} = $value;
+        }
+    }
+
+    /**
+     * @param callable $func
+     *
+     * @return $this
+     * @throws ParamBagException
+     */
+    public function map($func)
+    {
+        if (!is_callable($func)) {
+            throw new ParamBagException("Argument for method map() must be callable: func(\$key, \$value) {}");
+        }
+
+        foreach ($this->all() as $key => $value) {
+            $func($key, $value);
+        }
+
+        return $this;
+    }
+
+    /**
+     * @param callable $func
+     *
+     * @return $this
+     * @throws ParamBagException
+     */
+    public function filter($func)
+    {
+        if (!is_callable($func)) {
+            throw new ParamBagException("Argument for method filter() must be callable: func(\$key, \$value) {}");
+        }
+
+        foreach ($this->all() as $key => $value) {
+            if ($func($key, $value) === false) {
+                $this->remove($key);
+            }
+        }
+
+        return $this;
+    }
+
+    /**
      * @param $key
      *
      * @return bool
      */
-    public function keyExists($key)
+    public function has($key)
     {
+        $key = $this->normalizeKey($key);
+
         return (isset($this->bag[$key]));
+    }
+
+    /**
+     * @return AbstractParamBag
+     */
+    public function copy()
+    {
+        return clone $this;
     }
 
     /**
@@ -178,9 +289,9 @@ abstract class AbstractParamBag
     /**
      * @return string
      */
-    public function json()
+    public function json($jsonOptions = 0)
     {
-        return json_encode($this->all());
+        return json_encode($this->all(), $jsonOptions);
     }
 
     /**
@@ -188,7 +299,7 @@ abstract class AbstractParamBag
      *
      * @throws ParamBagException
      */
-    private function checkKey($key)
+    private function checkKeyRestrictions($key)
     {
         if (!$this->settings->checkKey) {
             return;
