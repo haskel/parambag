@@ -14,7 +14,9 @@
     "php": ">=5.6"
   },
   "autoload": {
-    "psr-4": { "Haskel\ParamBag\\": "src/" },
+    "psr-4": { 
+      "Haskel\\ParamBag\\": "src/" 
+    },
     "exclude-from-classmap": [
       "/Tests/"
     ]
